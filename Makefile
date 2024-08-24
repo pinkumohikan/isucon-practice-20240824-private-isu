@@ -26,7 +26,7 @@ kataribe: timestamp=$(shell TZ=Asia/Tokyo date "+%Y%m%d-%H%M%S")
 kataribe:
 	mkdir -p ~/kataribe-logs
 	sudo cp /var/log/nginx/access.log /tmp/last-access.log && sudo chmod 0666 /tmp/last-access.log
-	cat /tmp/last-access.log | kataribe -conf kataribe.toml > ~/kataribe-logs/$timestamp.log
+	cat /tmp/last-access.log | kataribe -conf kataribe.toml > ~/kataribe-logs/$$timestamp.log
 	cat ~/kataribe-logs/$$timestamp.log | grep --after-context 20 "Top 20 Sort By Total"
 
 pprof: TIME=60
@@ -34,3 +34,6 @@ pprof: PROF_FILE=~/pprof.samples.$(shell TZ=Asia/Tokyo date +"%H%M").$(shell git
 pprof:
 	curl -sSf "http://localhost:6060/debug/fgprof?seconds=$(TIME)" > $(PROF_FILE)
 	go tool pprof $(PROF_FILE)
+
+bench:
+	ssh isucon-bench "/home/isucon/private_isu.git/benchmarker/bin/benchmarker -u /home/isucon/private_isu.git/benchmarker/userdata -t http://172.31.29.227"
