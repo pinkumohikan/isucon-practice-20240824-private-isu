@@ -3,6 +3,7 @@ package main
 import (
 	crand "crypto/rand"
 	"fmt"
+	"github.com/felixge/fgprof"
 	"html/template"
 	"io"
 	"log"
@@ -23,6 +24,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
+	_ "net/http/pprof"
 )
 
 var (
@@ -830,6 +832,11 @@ func findUser(id int) (User, error) {
 }
 
 func main() {
+	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler())
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+
 	host := os.Getenv("ISUCONP_DB_HOST")
 	if host == "" {
 		host = "localhost"
