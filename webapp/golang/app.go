@@ -187,7 +187,7 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 
 	// postに対するコメント数のmap
 	commentCountMap := map[int]int{}
-	var postComments []struct {
+	var postCommentCount []struct {
 		PostID int `db:"post_id"`
 		Count  int `db:"count"`
 	}
@@ -196,26 +196,44 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		return nil, err
 	}
 	db.Rebind(q)
-	if err := db.Select(&postComments, q, params...); err != nil {
+	if err := db.Select(&postCommentCount, q, params...); err != nil {
 		return nil, err
 	}
-	for _, c := range postComments {
+	for _, c := range postCommentCount {
 		commentCountMap[c.PostID] = c.Count
+	}
+
+	// post毎の最新コメント
+	var comments []Comment
+	limit := 3
+	if allComments {
+		limit = 999
+	}
+	q, params, err = sqlx.In(`SELECT id, post_id, user_id, comment, created_at
+FROM (
+    SELECT
+        c.*,
+        ROW_NUMBER() OVER (PARTITION BY c.post_id ORDER BY c.created_at DESC) AS rn
+    FROM comments c
+    WHERE c.post_id IN (?)
+) AS ranked_comments
+WHERE ranked_comments.rn <= `+strconv.Itoa(limit), postIds)
+	if err != nil {
+		return nil, err
+	}
+	db.Rebind(q)
+	if err := db.Select(&comments, q, params...); err != nil {
+		return nil, err
+	}
+	commentMap := make(map[int][]Comment)
+	for _, c := range comments {
+		commentMap[c.PostID] = append(commentMap[c.PostID], c)
 	}
 
 	for _, p := range results {
 		p.CommentCount = commentCountMap[p.ID]
 
-		query := "SELECT * FROM `comments` WHERE `post_id` = ? ORDER BY `created_at` DESC"
-		if !allComments {
-			query += " LIMIT 3"
-		}
-		var comments []Comment
-		err = db.Select(&comments, query, p.ID)
-		if err != nil {
-			return nil, err
-		}
-
+		comments := commentMap[p.ID]
 		for i := 0; i < len(comments); i++ {
 			u, err := findUser(comments[i].UserID)
 			if err != nil {
