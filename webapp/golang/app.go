@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
@@ -25,8 +26,9 @@ import (
 )
 
 var (
-	db    *sqlx.DB
-	store *gsm.MemcacheStore
+	db      *sqlx.DB
+	store   *gsm.MemcacheStore
+	userMap = sync.Map{}
 )
 
 const (
@@ -148,9 +150,14 @@ func getSessionUser(r *http.Request) User {
 		return User{}
 	}
 
-	u := User{}
-
-	err := db.Get(&u, "SELECT * FROM `users` WHERE `id` = ?", uid)
+	id := 0
+	switch value := uid.(type) {
+	case int:
+		id = value
+	case int64:
+		id = int(value)
+	}
+	u, err := findUser(id)
 	if err != nil {
 		return User{}
 	}
@@ -191,10 +198,11 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 		}
 
 		for i := 0; i < len(comments); i++ {
-			err := db.Get(&comments[i].User, "SELECT * FROM `users` WHERE `id` = ?", comments[i].UserID)
+			u, err := findUser(comments[i].UserID)
 			if err != nil {
 				return nil, err
 			}
+			comments[i].User = u
 		}
 
 		// reverse
@@ -204,11 +212,11 @@ func makePosts(results []Post, csrfToken string, allComments bool) ([]Post, erro
 
 		p.Comments = comments
 
-		err = db.Get(&p.User, "SELECT * FROM `users` WHERE `id` = ?", p.UserID)
+		u, err := findUser(p.UserID)
 		if err != nil {
 			return nil, err
 		}
-
+		p.User = u
 		p.CSRFToken = csrfToken
 
 		if p.User.DelFlg == 0 {
@@ -766,6 +774,22 @@ func postAdminBanned(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/admin/banned", http.StatusFound)
+}
+
+func findUser(id int) (User, error) {
+	if v, ok := userMap.Load(id); ok {
+		return v.(User), nil
+	}
+
+	user := User{}
+	err := db.Get(&user, "SELECT * FROM users WHERE id = ?", id)
+	if err != nil {
+		return User{}, err
+	}
+
+	userMap.Store(user.ID, user)
+
+	return user, nil
 }
 
 func main() {
